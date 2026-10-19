@@ -38,8 +38,8 @@ Proof. reflexivity. Qed.
 
 Lemma fp_fflags_bits_range : forall fl, (0 <= fflags_bits fl < 32)%Z.
 Proof.
-  intros [nv dz of uf nx]. unfold fflags_bits. cbn [fl_nx fl_uf fl_of fl_dz fl_nv].
-  destruct nv, dz, of, uf, nx; vm_compute; split; congruence.
+  intros [nv dz of_ uf nx]. unfold fflags_bits. cbn [fl_nx fl_uf fl_of fl_dz fl_nv].
+  destruct nv, dz, of_, uf, nx; vm_compute; split; congruence.
 Qed.
 
 Lemma fp_u32_range : forall f : bv 32, (0 <= bv_unsigned f < 2^32)%Z.
