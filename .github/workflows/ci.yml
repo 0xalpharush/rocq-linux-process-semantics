@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and check (Rocq ${{ matrix.rocq }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    # The opam files require Rocq 9.2.  The 9.3 and dev lanes show what
+    # breaks on newer Rocq; their failure does not fail the run.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The images pin an older dune; pin one that the build supports.
+          - rocq: '9.2'
+            dune: '3.23.1'
+            experimental: false
+          - rocq: '9.3'
+            dune: '3.24.2'
+            experimental: true
+          - rocq: 'dev'
+            dune: '3.24.2'
+            experimental: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: rocq-prover/docker-opam-action@master
+        with:
+          # The action keeps its historical input name.
+          coq_version: ${{ matrix.rocq }}
+          before_install: |
+            startGroup "Fix workspace permissions"
+              sudo chown -R $(id -u):$(id -g) .
+              git config --global --add safe.directory /github/workspace
+            endGroup
+            startGroup "Install Python 3"
+              sudo apt-get update -y -q
+              sudo apt-get install -y -q --no-install-recommends python3
+            endGroup
+          install: |
+            startGroup "Install dependencies"
+              opam update -y
+              opam pin add -k version -y dune "${{ matrix.dune }}"
+              if [ "${{ matrix.experimental }}" = "true" ]; then
+                # The opam files exclude this Rocq, so install the
+                # dependencies by name.  rocq-read-file 0.0.3 is the first
+                # release that builds with dune 3.24; pin it until it is in
+                # the Rocq opam repository.
+                opam pin add -n -y rocq-read-file.0.0.3 "git+https://github.com/theorem-labs/rocq-read-file.git#v0.0.3"
+                opam install -y -j 2 rocq-stdlib rocq-stdpp rocq-stdpp-bitvector coq-flocq rocq-read-file
+              else
+                opam install -y -j 2 --deps-only .
+              fi
+            endGroup
+          script: |
+            startGroup "Tool versions"
+              opam exec -- dune --version
+              opam exec -- rocq --version
+            endGroup
+            startGroup "Build everything (dune build)"
+              opam exec -- dune build --display short
+            endGroup
+            startGroup "Check the generated Checker.v files"
+              python3 tools/gen_checker.py --check
+              python3 tools/gen_checker.py --verify
+            endGroup
+            startGroup "Check the assumptions of the example proofs"
+              opam exec -- python3 .github/check_assumptions.py
+            endGroup
+            startGroup "Test elf-snapshot"
+              python3 tools/test_elf_snapshot.py
+            endGroup
+          uninstall: ''
+
+  opam:
+    name: opam install
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.3"
+          opam-repositories: |
+            default: https://github.com/ocaml/opam-repository.git
+            rocq-released: https://rocq-prover.org/opam/released
+          # Sets DUNE_CACHE=enabled and keeps the dune cache between runs.
+          dune-cache: true
+
+      - name: Pin and install all packages
+        run: opam pin add --yes .
+
+      - name: Use the installed packages
+        run: |
+          opam exec -- rocq --version
+          cat > "$RUNNER_TEMP/Use.v" <<'EOF'
+          From LinuxProcessSemantics.EquivalenceDefinition Require Import Equivalence.
+          From LinuxProcessSemantics.Common Require Import ShapeAlg.
+          From LinuxProcessSemantics.Examples.rwx_flag_ns Require Import Proof.
+          Check Proof.strong_universal.
+          EOF
+          opam exec -- rocq c "$RUNNER_TEMP/Use.v"
+          opam exec -- elf-snapshot --help > /dev/null
+          opam exec -- gen-fd-lemmas --help > /dev/null

@@ -1,0 +1,18 @@
+; The proof library, installed by the opam package
+; rocq-linux-process-semantics-common.
+(include_subdirs qualified)
+
+; Some files of this library use `Notation ident := term`, which Rocq 9.2
+; deprecates.  The root dune file makes that an error; here it stays a
+; warning.
+(env
+ (_
+  (rocq
+   (flags :standard -w notation-for-abbreviation))))
+
+(rocq.theory
+ (name LinuxProcessSemantics.Common)
+ (package rocq-linux-process-semantics-common)
+ ; Ltac2: CertRefl.v and LiaFast.v are Ltac2 files.
+ ; Flocq: LinuxProcessSemantics requires it.
+ (theories Stdlib stdpp ReadFile Ltac2 Flocq LinuxProcessSemantics))

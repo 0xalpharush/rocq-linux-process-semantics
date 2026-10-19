@@ -1,0 +1,26 @@
+; Warning flags for every Rocq theory in this repository.
+; Under (using rocq 0.13) the field must be spelled (rocq ...): dune ignores
+; an (env ... (coq (flags ...))) stanza without a diagnostic.
+;
+; notation-for-abbreviation is an error, not a warning: Rocq 9.2 deprecates
+; `Notation ident := term`.  Use `Abbreviation` instead.
+(env
+ (_
+  (rocq
+   (flags
+    :standard
+    -w
+    -notation-incompatible-prefix
+    -w
+    -abstract-large-number
+    -w
+    +notation-for-abbreviation))))
+
+; The two helper scripts that the core package installs (Python 3, standard
+; library only).
+(install
+ (section bin)
+ (package rocq-linux-process-semantics-core)
+ (files
+  (tools/gen_fd_lemmas.py as gen-fd-lemmas)
+  (tools/elf_snapshot.py as elf-snapshot)))

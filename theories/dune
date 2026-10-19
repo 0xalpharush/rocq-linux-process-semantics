@@ -1,0 +1,24 @@
+; The core theory: everything under theories/ except Common/ and Examples/,
+; which are theories of their own (see their dune files) and belong to
+; other opam packages.
+(include_subdirs qualified)
+
+; Make the direct ReadFileString input present before rocq dep scans the
+; theory, as Examples/HexDeps.v does for the ELF snapshot chunks.
+(rule
+ (target BridgeDeps.v)
+ (deps LinuxProcessSem/Bridge/exit.hex)
+ (action (with-stdout-to BridgeDeps.v (echo "(* Generated dependency anchor. *)\n"))))
+
+(rocq.theory
+ (name LinuxProcessSemantics)
+ (package rocq-linux-process-semantics-core)
+ ; Compiling an Extraction.v file writes a .ml file as a side effect, so
+ ; the build leaves both out.  Compile them by hand to extract the
+ ; executable syscall checker (LinuxProcessSem/Checks/Extraction.v) or the
+ ; instruction semantics (Riscv/Extraction.v).
+ ;
+ ; dune ignores a name in this list that matches no module.  If you rename
+ ; or move either file, change this list too.
+ (modules :standard \ Riscv.Extraction LinuxProcessSem.Checks.Extraction)
+ (theories Stdlib stdpp ReadFile Flocq))

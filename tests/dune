@@ -1,0 +1,22 @@
+; Tests that belong to no opam package.  A plain `dune build` runs them.
+
+; Make a 9.4 MiB code segment through elf-snapshot, which splits its bytes
+; into two .hex chunks.  Then check, with vm_compute, a read and an
+; instruction fetch that span the join of the two chunks.  dune makes the
+; files in _build only.
+(rule
+ (targets
+  LargeChunkImage.v
+  LargeChunkImage_seg_000_chunk_000.hex
+  LargeChunkImage_seg_000_chunk_001.hex)
+ (deps
+  %{project_root}/tools/elf_snapshot.py
+  %{project_root}/tools/gen_fd_lemmas.py
+  %{project_root}/tools/test_elf_snapshot.py)
+ (action
+  (run python3 %{project_root}/tools/test_elf_snapshot.py
+   --emit-large-rocq-check LargeChunkImage.v)))
+
+(rocq.theory
+ (name LinuxProcessSemantics.Tests)
+ (theories Stdlib stdpp ReadFile LinuxProcessSemantics))
