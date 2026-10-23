@@ -9,7 +9,7 @@ statements of rocq-linux-process-semantics-core about RISC-V binaries.
 Most of it was written by the OSS-Fuzz proof collaborators. The header of
 each file says where it came from.
 """
-maintainer: "Theorem Labs"
+maintainer: "Jason Gross <jason@theorem.dev>"
 authors: ["The OSS-Fuzz proof collaborators" "Theorem Labs"]
 license: "MIT"
 homepage: "https://github.com/theorem-labs/rocq-linux-process-semantics"

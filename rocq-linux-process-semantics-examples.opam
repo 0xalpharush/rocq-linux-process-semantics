@@ -8,7 +8,7 @@ small RISC-V Linux binaries (a C build and a Zig build of the same
 program) are observably equivalent, and worked instances of the
 patch-classifier and input-measure statements.
 """
-maintainer: "Tej Chajed <tej@theorem.dev>"
+maintainer: "Jason Gross <jason@theorem.dev>"
 authors: ["Tej Chajed"]
 license: "MIT"
 homepage: "https://github.com/theorem-labs/rocq-linux-process-semantics"
