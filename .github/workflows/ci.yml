@@ -14,9 +14,6 @@ jobs:
     name: Build and check (Rocq ${{ matrix.rocq }})
     runs-on: ubuntu-latest
     timeout-minutes: 300
-    # The opam files require Rocq 9.2.  The 9.3 and dev lanes show what
-    # breaks on newer Rocq; their failure does not fail the run.
-    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
@@ -24,13 +21,10 @@ jobs:
           # The images pin an older dune; pin one that the build supports.
           - rocq: '9.2'
             dune: '3.23.1'
-            experimental: false
           - rocq: '9.3'
             dune: '3.24.2'
-            experimental: true
           - rocq: 'dev'
             dune: '3.24.2'
-            experimental: true
     steps:
       - uses: actions/checkout@v4
 
@@ -51,16 +45,7 @@ jobs:
             startGroup "Install dependencies"
               opam update -y
               opam pin add -k version -y dune "${{ matrix.dune }}"
-              if [ "${{ matrix.experimental }}" = "true" ]; then
-                # The opam files exclude this Rocq, so install the
-                # dependencies by name.  rocq-read-file 0.0.3 is the first
-                # release that builds with dune 3.24; pin it until it is in
-                # the Rocq opam repository.
-                opam pin add -n -y rocq-read-file.0.0.3 "git+https://github.com/theorem-labs/rocq-read-file.git#v0.0.3"
-                opam install -y -j 2 rocq-stdlib rocq-stdpp rocq-stdpp-bitvector coq-flocq rocq-read-file
-              else
-                opam install -y -j 2 --deps-only .
-              fi
+              opam install -y -j 2 --deps-only .
             endGroup
           script: |
             startGroup "Tool versions"
