@@ -62,8 +62,8 @@ The repository has four opam packages. One dune project builds all of them.
 
 ## Install
 
-You need opam 2 and Python 3. opam installs Rocq 9.2 and the other
-dependencies.
+You need opam 2 and Python 3. opam installs Rocq (9.2 or later) and the
+other dependencies. CI tests Rocq 9.2, 9.3 and the development version.
 
 1. Add the Rocq opam repository:
 
