@@ -139,7 +139,9 @@ These steps use the name `foo_ns`.
    the file that you changed.
 
 8. The example is complete when `Print Assumptions` shows only the
-   permitted assumptions.
+   permitted assumptions and `rocqchk` accepts the compiled checker.
+   After `dune build`, run `python3 .github/check_assumptions.py` to check
+   both.
 
 If a new example uses the same system calls as an existing example, copy
 the `_defs.v` file of that example and use the same library lemma.
