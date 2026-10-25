@@ -492,7 +492,7 @@ Qed.
     AT_PHNUM = 0 is precisely the "libc finds no PT_TLS" state this
     datum exists to rule out.  Every ELF the loader accepts has at least
     one program header (it needs one covering [e_phoff] to publish
-    AT_PHDR at all) and [e_phentsize] >= 56. *)
+    AT_PHDR at all) and [e_phentsize] = 56. *)
 Definition image_phdrs_readable (segs : list Segment) (ph : PhdrInfo) : bool :=
   (0 <? ph_num ph)%N && (0 <? ph_ent ph)%N &&
   match memory_read segs (Z_to_bv 64 (Z.of_N (ph_addr ph)))

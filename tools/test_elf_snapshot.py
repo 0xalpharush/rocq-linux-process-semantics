@@ -23,8 +23,9 @@ are refused, and extents are page-rounded and read as the kernel's whole-page
 FILE mapping (head/tail
 slack holds the neighboring file bytes; only bss is zeroed), a segment whose
 p_vaddr and p_offset are not congruent mod the page size is refused (the
-kernel cannot exec it), a w+x (RWX) segment is recorded with its exact perms, and an
-ELF with no mapped PT_LOAD segment at all is refused (see the group comments
+kernel cannot exec it), a w+x (RWX) segment is recorded with its exact perms, an
+ELF with no mapped PT_LOAD segment at all is refused, and so are an e_phentsize
+other than 56 and a program header table over 64 KiB (see the group comments
 below for why each one matters).
 
 No toolchain or pytest needed:
@@ -205,6 +206,27 @@ def build_elf(seg_specs, tls_extra=False, start_symbol_at=None,
         struct.pack_into("<H", ehdr, 62, 0)      # e_shstrndx
 
     return bytes(ehdr) + bytes(phdrs) + bytes(payload) + bytes(tail)
+
+
+def build_elf_padded_table(phnum):
+    """Build an ELF whose ``phnum``-entry program header table lies wholly
+    inside the file and inside a readable PT_LOAD: one text LOAD, one LOAD
+    that maps the ELF header and the table, and PT_NULL entries for the
+    rest.  The text segment sits above the header mapping so the two do
+    not overlap even for a 64 KiB table."""
+    text_vaddr = 0x40000
+    text = b"\x13\x05\x00\x00"
+    data_off = EHDR_SIZE + phnum * PHENTSIZE
+    text_off = data_off + (text_vaddr - data_off) % PAGE
+    ehdr = bytearray(build_elf(SEG_SPECS[:1])[:EHDR_SIZE])
+    struct.pack_into("<Q", ehdr, 24, text_vaddr)   # e_entry
+    struct.pack_into("<H", ehdr, 56, phnum)        # e_phnum
+    phdrs = struct.pack("<IIQQQQQQ", 1, 5, text_off, text_vaddr, text_vaddr,
+                        len(text), len(text), 1)
+    phdrs += struct.pack("<IIQQQQQQ", 1, 4, 0, HDR_VADDR, HDR_VADDR,
+                         data_off, data_off, 1)
+    phdrs += b"\x00" * (PHENTSIZE * (phnum - 2))   # PT_NULL
+    return (bytes(ehdr) + phdrs + b"\x00" * (text_off - data_off) + text)
 
 
 PAGE = 4096
@@ -534,6 +556,74 @@ def main():
                 "expected ValueError"
             )
         groups_passed.append("PT_TLS accepted; unmapped phdrs/TLS rejected")
+
+        # A program header table with entries of any size other than 56
+        # bytes is rejected: Linux's execve refuses it (load_elf_phdrs).
+        # Re-lay a valid table in place with 64-byte entries, inside a
+        # header mapping large enough to still cover it.
+        phent = bytearray(build_elf(SEG_SPECS[:1],
+                                    hdr_maps=[(4, 0, 0x200, HDR_VADDR)]))
+        ph_off = struct.unpack_from("<Q", phent, 32)[0]
+        ph_num = struct.unpack_from("<H", phent, 56)[0]
+        entries = [bytes(phent[ph_off + PHENTSIZE * i:
+                               ph_off + PHENTSIZE * (i + 1)])
+                   for i in range(ph_num)]
+        phent[ph_off:ph_off + 64 * ph_num] = b"".join(
+            e + b"\x00" * 8 for e in entries)
+        struct.pack_into("<H", phent, 54, 64)
+        phent_path = os.path.join(tmp, "fake_phentsize64.elf")
+        with open(phent_path, "wb") as f:
+            f.write(phent)
+        try:
+            _parse_elf(phent_path)
+        except ValueError as e:
+            assert "e_phentsize=64" in str(e), (
+                "e_phentsize rejection has the wrong message: %s" % e
+            )
+        else:
+            raise AssertionError(
+                "ELF with e_phentsize=64 was accepted; expected ValueError"
+            )
+        groups_passed.append("e_phentsize other than 56 rejected")
+
+        # A program header table over 64 KiB is rejected too (load_elf_phdrs
+        # again): 1170 entries of 56 bytes (65,520) is the largest table
+        # Linux accepts, 1171 (65,576) the first it refuses.  Each fixture
+        # holds its whole table inside the file and inside a PT_LOAD, so
+        # without the size check the parser accepts both.
+        ok_path = os.path.join(tmp, "fake_phnum1170.elf")
+        with open(ok_path, "wb") as f:
+            f.write(build_elf_padded_table(1170))
+        snap = _parse_elf(ok_path)
+        assert snap["phdrs"]["num"] == 1170, snap["phdrs"]
+        bigtab_path = os.path.join(tmp, "fake_phnum1171.elf")
+        with open(bigtab_path, "wb") as f:
+            f.write(build_elf_padded_table(1171))
+        try:
+            _parse_elf(bigtab_path)
+        except ValueError as e:
+            assert "e_phnum=1171" in str(e), (
+                "oversized phdr table rejection has the wrong message: %s" % e
+            )
+        else:
+            raise AssertionError(
+                "ELF with a 65576-byte phdr table was accepted; expected ValueError"
+            )
+        # rebuild_elf refuses the same table in a snapshot: the accepted
+        # 1170-entry snapshot, with one more entry, still inside the
+        # mapped header segment.
+        snap["phdrs"] = dict(snap["phdrs"], num=1171)
+        try:
+            elf_snapshot.rebuild_elf(snap)
+        except ValueError as e:
+            assert "ph_num 1171" in str(e), (
+                "rebuild_elf oversized-table rejection has the wrong message: %s" % e
+            )
+        else:
+            raise AssertionError(
+                "rebuild_elf accepted a 1171-entry phdr table; expected ValueError"
+            )
+        groups_passed.append("phdr tables over 64 KiB rejected, 1170 entries accepted")
 
         # -- Group 4: a logical LOAD segment may cross ReadFileString's
         # primitive-string ceiling without being split into fake mappings.
