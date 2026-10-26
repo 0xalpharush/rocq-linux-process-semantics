@@ -71,6 +71,29 @@ not apply.
   (`Sys/Mm/Mmap.v`, the `-EPERM` note). With a larger setting, Linux
   answers `-EPERM` for a fixed mapping below it, and the model admits
   the mapping.
+- The process uses the top-down mmap layout. The process does not have
+  the `ADDR_COMPAT_LAYOUT` personality (`setarch -L`), and
+  `vm.legacy_va_layout` is 0. (An unlimited `RLIMIT_STACK` also selects
+  the legacy layout; see "Stack limit" above.) In the legacy layout
+  Linux puts the mmap base at `TASK_UNMAPPED_BASE` (0x2aaaaab000) plus
+  the random offset. That base can be below the floor of
+  `Run.valid_mmap_base`, and then the model has no start state for that
+  launch.
+- `vm.mmap_rnd_bits` is at most 24, or the stack guard gap is at most
+  0x4aba6a2ab000 bytes (about 74.7 TiB; the `stack_guard_gap` boot
+  parameter gives the gap in pages, so this is 0x4aba6a2ab pages). The boot
+  value of `vm.mmap_rnd_bits` is `CONFIG_ARCH_MMAP_RND_BITS`, which is
+  18 to 24 on riscv64. Root can set it to at most 33 under Sv48. With 33
+  bits and a larger guard gap, Linux can put the mmap base below the
+  floor of `Run.valid_mmap_base`. With fewer bits the guard gap must be
+  larger for that (about 106.6 TiB at 25 bits). With the default guard
+  gap (256 pages), 33 bits keep the base in the band. Under these two
+  assumptions the band is exactly the set of bases that Linux gives
+  (`Checks.Cases.MmapBase.sv48_band_is_linux_set`). A guard gap within
+  about 1 GiB of 2^64 bytes wraps the kernel's arithmetic, and the mmap
+  base can then lie above the bottom of the stack. Linux can then place a
+  mapping where the model refuses it (`State.alloc_top`), so a proof says
+  nothing about a process with such a guard gap.
 
 ## Known gaps in precision
 

@@ -269,11 +269,19 @@ Proof. split; check_eq. Qed.
     Reason 4: no live run can reach it.  A trace would have to grow a tracked
     mapping in place across its run's [alloc_top].  Linux's top-down
     [mmap_base] sits at least [stack_guard_gap] below the deepest legal
-    stack (mm/util.c [mmap_base], Linux v6.18.46), so an ordinary run's
-    grants end under the stack's bottom — the exception is an argv image
-    over 1 MiB, a known limitation of the model.  The bound is the
-    model's stack-disjointness
-    rule; see [State.alloc_top]. *)
+    stack, or [MAX_GAP] below [STACK_TOP] when a large guard makes the gap
+    clamp (mm/util.c:456-461, [mmap_base], Linux v6.18.46).  The other
+    case is a guard within one stack pad plus the stack rlimit of 2^64:
+    the pad wraps (mm/util.c:450), or the sum wraps and the test at :453
+    keeps the rlimit alone.  The gap is then at most 0x407fe000 and can
+    clamp up to [MIN_GAP], so under [PF_RANDOMIZE] the base can be from
+    one page to 0x387ff000 bytes above the deepest stack bottom, up to
+    [STACK_TOP - MIN_GAP].  So with any smaller guard a live run's grants
+    end under the stack's bottom.  With a guard in that range Linux can
+    place a mapping above [alloc_top], which the model refuses: there the
+    model's stack-disjointness rule ([State.alloc_top]) is narrower than
+    Linux.  The other exception is an argv image over 1 MiB, a known
+    limitation of the model. *)
 
 (** And, as with the image conjunct, it closes the in-place ARM rather than
     the call: from the same ledger a move down to free space is still
