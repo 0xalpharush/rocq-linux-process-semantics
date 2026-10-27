@@ -198,10 +198,16 @@ true of the model and false of the real systems.
   `8 MiB - (vm_end - sp)` below the entry `sp`. The band grows with the
   size of argv and envp, to about 2 MiB for the largest that
   `Run.valid_argv` and `Run.valid_envp` admit.
-  QEMU user mode has a band of the same kind: its stack is one fixed
-  8 MiB mapping with a guard page below it, and the entry image is
-  inside it (`setup_arg_pages` and `load_elf_binary` in
-  `linux-user/elfload.c`, QEMU 8.2.2).
+  QEMU user mode has a band of the same kind. `setup_arg_pages` in
+  `linux-user/elfload.c` makes one mapping of fixed size for the guest
+  stack (QEMU 10.0.11). The stack size is `guest_stack_size`, and
+  `TARGET_DEFAULT_STACK_SIZE` in `linux-user/main.c` sets it to 8 MiB
+  by default. A finite soft `RLIMIT_STACK` above 8 MiB makes the
+  mapping larger, and the "Stack limit" row above puts that case
+  outside the model. `setup_arg_pages` also puts a `PROT_NONE` guard
+  page below the stack. `load_elf_binary` writes the entry image
+  inside the mapping, with the exec filename, the argv and envp
+  strings, `AT_RANDOM`, the auxiliary vector, `argc` and the pointers.
 - **vDSO and vvar.** The kernel installs this pair at `execve`, and the
   model's ledger does not carry it (`Sys/Mm/Mmap.v`, the `munmap`
   arms). An `munmap` of a free range that lands on the pair answers 0,
