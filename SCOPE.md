@@ -210,9 +210,9 @@ true of the model and false of the real systems.
   strings, `AT_RANDOM`, the auxiliary vector, `argc` and the pointers.
 - **vDSO and vvar.** The kernel installs this pair at `execve`, and the
   model's ledger does not carry it (`Sys/Mm/Mmap.v`, the `munmap`
-  arms). An `munmap` of a free range that lands on the pair answers 0,
-  where Linux unmaps it, or refuses with `-EPERM` under
-  `CONFIG_MSEAL_SYSTEM_MAPPINGS`.
+  arms). An `munmap` whose range meets the pair, whole or in part,
+  answers as if the pair were not there, where Linux unmaps it or
+  refuses with `-EPERM` under `CONFIG_MSEAL_SYSTEM_MAPPINGS`.
 
 ## What the proofs do not check
 
