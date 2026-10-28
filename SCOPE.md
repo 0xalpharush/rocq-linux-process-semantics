@@ -95,6 +95,15 @@ not apply.
   (`Sys/Mm/Mmap.v`, the `-EPERM` note). With a larger setting, Linux
   answers `-EPERM` for a fixed mapping below it, and the model admits
   the mapping.
+- No `munmap` range meets the vDSO or the vvar mapping. The kernel
+  installs this pair at `execve`, and the model's ledger does not carry
+  it (`Sys/Mm/Mmap.v`, the `munmap` arms), so the model answers such a
+  call as if the pair were not there. Linux unmaps a mapping of the pair
+  that the range covers whole. It refuses with `-EPERM` when the mapping
+  is sealed (`CONFIG_MSEAL_SYSTEM_MAPPINGS`), and with `-EINVAL` when the
+  range starts or ends inside it, because a special mapping cannot be
+  split (`special_mapping_split`, `mm/mmap.c`). The model admits neither
+  error.
 - The process uses the top-down mmap layout. The process does not have
   the `ADDR_COMPAT_LAYOUT` personality (`setarch -L`), and
   `vm.legacy_va_layout` is 0. (An unlimited `RLIMIT_STACK` also selects
@@ -208,11 +217,6 @@ true of the model and false of the real systems.
   page below the stack. `load_elf_binary` writes the entry image
   inside the mapping, with the exec filename, the argv and envp
   strings, `AT_RANDOM`, the auxiliary vector, `argc` and the pointers.
-- **vDSO and vvar.** The kernel installs this pair at `execve`, and the
-  model's ledger does not carry it (`Sys/Mm/Mmap.v`, the `munmap`
-  arms). An `munmap` whose range meets the pair, whole or in part,
-  answers as if the pair were not there, where Linux unmaps it or
-  refuses with `-EPERM` under `CONFIG_MSEAL_SYSTEM_MAPPINGS`.
 
 ## What the proofs do not check
 

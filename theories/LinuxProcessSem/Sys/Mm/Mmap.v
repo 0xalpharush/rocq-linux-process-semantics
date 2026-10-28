@@ -2197,9 +2197,15 @@ Definition mmap_budget_refused_b (addr len prot flags fd off : word)
       stack randomisation, mm/util.c at v6.18.46, so it is at least
       1 MiB under [sp - 8 MiB] unless the argv/envp block is larger than
       that) — and a free-range unmap that lands on those is answered 0
-      here where Linux unmaps them (or, with
-      [CONFIG_MSEAL_SYSTEM_MAPPINGS], refuses with -EPERM); that is a
-      premise of the model.
+      here where Linux unmaps them, or refuses with -EPERM when they are
+      sealed ([CONFIG_MSEAL_SYSTEM_MAPPINGS]; the [vma_is_sealed] tests
+      at mm/vma.c:1396-1398 and :1416-1418), or with -EINVAL when the
+      range starts or ends inside one of them: [__split_vma] asks the
+      VMA's [may_split] first (mm/vma.c:504-508), and a special mapping's
+      is [special_mapping_split], which always answers -EINVAL
+      (mm/mmap.c:1394-1403, installed for both by
+      [_install_special_mapping], :1492-1498).  That is a premise of the
+      model (SCOPE.md, "Assumptions that the model does not check").
     - [addr, addr+n) meeting recorded mappings without being exactly
       one — a head or tail trim, a hole punched in one mapping, a range
       over several mappings or over mappings and free pages — that
