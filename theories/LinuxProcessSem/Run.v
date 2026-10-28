@@ -121,9 +121,9 @@ Definition apply_zeros (mem : word -> option byte) (zs : list (word * word))
     mapping, mremap, or the tail a brk shrink frees — see
     [State.eff_unmaps]): every covered address becomes UNMAPPED in the
     writable overlay, so a later load faults instead of reading stale
-    bytes, as on Linux.  The SPECS only unmap whole recorded anonymous
-    mappings or contained subranges, disjoint from every loaded segment
-    and from the stack, so erasing the overlay really makes the range inaccessible
+    bytes, as on Linux.  The SPECS only unmap recorded anonymous mappings,
+    their subranges, or ranges of them and free pages, disjoint from every
+    loaded segment and from the stack, so erasing the overlay really makes the range inaccessible
     (there is no segment underneath for reads to fall back to). *)
 Definition apply_unmaps (mem : word -> option byte) (us : list (word * word))
     : word -> option byte :=

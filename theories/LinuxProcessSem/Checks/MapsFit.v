@@ -188,7 +188,14 @@ Proof.
     dif H; [|discriminate]. injection H as <- <-.
     unfold vm_fit. rewrite vmm_mmap_destroyed. cbn [vm_maps].
     now apply maps_fit_filter.
-  - dif H; [apply check_ret_only_model in H; subst m'; exact Hfit|discriminate].
+  - dif H; [apply check_ret_only_model in H; subst m'; exact Hfit|].
+    dif H; [|discriminate].
+    destruct ws, zs, cs, ci; try discriminate.
+    dif H.
+    + destruct us; [|discriminate]. injection H as <- <-. exact Hfit.
+    + dif H; [|discriminate]. injection H as <- <-.
+      unfold vm_fit. rewrite vmm_mmap_destroyed. cbn [vm_maps].
+      apply maps_subtract_fit. exact Hfit.
 Qed.
 
 Lemma check_mprotect_preserves_fit : forall addr len prot eff m m' evs,

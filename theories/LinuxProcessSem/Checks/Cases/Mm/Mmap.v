@@ -76,17 +76,152 @@ Example munmap_free_range_in_the_stack_band_is_unmodeled :
   = CheckUnmodeled.
 Proof. check_eq. Qed.
 
-(** A PARTIAL unmap (Linux would split the mapping) is unmodeled and
-    fails closed. *)
+(** A PARTIAL unmap: Linux splits the VMA and unmaps the range
+    ([Mmap.munmap_spec]).  The first page of a two-page mapping goes, the
+    second stays, and an answer that keeps the page mapped is rejected. *)
 
-Example munmap_partial_is_error :
+Example munmap_partial_splits_the_mapping :
   check_syscall (mkInput 215 [65536; 4096; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(65536, 4096)] [] [])
+    (with_vmmaps (mkVmMaps [] [(65536, 8192)] 0 0 demo_limit)
+                 (init_model [] 0 0 demo_sp demo_limit (demo_input [] IEof)))
+  = CheckOk
+      (with_vmmaps (mkVmMaps [] [(69632, 4096)] 0 0 demo_limit)
+                 (init_model [] 0 0 demo_sp demo_limit (demo_input [] IEof))) []
+  /\ check_syscall (mkInput 215 [65536; 4096; 0; 0; 0; 0]
                    (fun _ => None) (fun _ => None))
     (mkEffect 0 [] [])
     (with_vmmaps (mkVmMaps [] [(65536, 8192)] 0 0 demo_limit)
                  (init_model [] 0 0 demo_sp demo_limit (demo_input [] IEof)))
+  = CheckReject.
+Proof. split; check_eq. Qed.
+
+(** The partial-unmap shapes, on a four-page mapping [0x10000, 0x14000). *)
+Definition four_page_model : Model :=
+  with_vmmaps (mkVmMaps [] [(65536, 16384)] 0 0 demo_limit)
+              (init_model [] 0 0 demo_sp demo_limit (demo_input [] IEof)).
+
+Definition maps_model (maps : list (word * word)) : Model :=
+  with_vmmaps (mkVmMaps [] maps 0 0 demo_limit)
+              (init_model [] 0 0 demo_sp demo_limit (demo_input [] IEof)).
+
+(** Head trim: the first page goes. *)
+Example munmap_head_trim :
+  check_syscall (mkInput 215 [65536; 4096; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(65536, 4096)] [] []) four_page_model
+  = CheckOk (maps_model [(69632, 12288)]) [].
+Proof. check_eq. Qed.
+
+(** Tail trim: the last page goes. *)
+Example munmap_tail_trim :
+  check_syscall (mkInput 215 [77824; 4096; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(77824, 4096)] [] []) four_page_model
+  = CheckOk (maps_model [(65536, 12288)]) [].
+Proof. check_eq. Qed.
+
+(** Middle split: the second page goes, and the mapping is two. *)
+Example munmap_middle_split :
+  check_syscall (mkInput 215 [69632; 4096; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(69632, 4096)] [] []) four_page_model
+  = CheckOk (maps_model [(65536, 4096); (73728, 8192)]) [].
+Proof. check_eq. Qed.
+
+(** A length that is not a page multiple is rounded up, as for an exact
+    unmap: 4097 bytes from the head take two pages. *)
+Example munmap_head_trim_rounds_len :
+  check_syscall (mkInput 215 [65536; 4097; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(65536, 8192)] [] []) four_page_model
+  = CheckOk (maps_model [(73728, 8192)]) [].
+Proof. check_eq. Qed.
+
+(** Several mappings: the range ends inside the first, covers the
+    second whole, and starts inside the third. *)
+Example munmap_spans_three_mappings :
+  check_syscall (mkInput 215 [69632; 16384; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(69632, 16384)] [] [])
+    (maps_model [(65536, 8192); (73728, 8192); (81920, 8192)])
+  = CheckOk (maps_model [(65536, 4096); (86016, 4096)]) [].
+Proof. check_eq. Qed.
+
+(** Holes: a range over two mappings and the free page between them
+    removes both, and a range that starts in free space and ends inside
+    a mapping trims its head.  Linux returns 0 for both. *)
+Example munmap_range_with_hole :
+  check_syscall (mkInput 215 [65536; 12288; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(65536, 12288)] [] [])
+    (maps_model [(65536, 4096); (73728, 4096)])
+  = CheckOk (maps_model []) [].
+Proof. check_eq. Qed.
+
+Example munmap_hole_then_head :
+  check_syscall (mkInput 215 [61440; 8192; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(61440, 8192)] [] []) four_page_model
+  = CheckOk (maps_model [(69632, 12288)]) [].
+Proof. check_eq. Qed.
+
+(** The split can fail with -ENOMEM before any page goes
+    ([vms_gather_munmap_vmas]): the model is unchanged, and an -ENOMEM
+    that also unmaps is rejected. *)
+Example munmap_partial_enomem :
+  check_syscall (mkInput 215 [69632; 4096; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffect (errno_ret ENOMEM) [] []) four_page_model
+  = CheckOk four_page_model []
+  /\ check_syscall (mkInput 215 [69632; 4096; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU (errno_ret ENOMEM) [] [] [(69632, 4096)] [] []) four_page_model
+  = CheckReject.
+Proof. split; check_eq. Qed.
+
+(** Negative controls.  An unaligned [addr] is still -EINVAL before the
+    ledger is read, and the cut it would make is rejected.  A partial
+    unmap that touches the image, or reaches into the stack band, is
+    still unmodeled. *)
+Example munmap_partial_unaligned_einval :
+  check_syscall (mkInput 215 [69633; 4096; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffect (errno_ret EINVAL) [] []) four_page_model
+  = CheckOk four_page_model []
+  /\ check_syscall (mkInput 215 [69633; 4096; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(69632, 4096)] [] []) four_page_model
+  = CheckReject.
+Proof. split; check_eq. Qed.
+
+Example munmap_partial_over_image_is_unmodeled :
+  check_syscall (mkInput 215 [61440; 8192; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(61440, 8192)] [] [])
+    (with_vmmaps (mkVmMaps [(57344, 8192)] [(65536, 16384)] 0 0 demo_limit)
+                 (init_model [] 0 0 demo_sp demo_limit (demo_input [] IEof)))
   = CheckUnmodeled.
-Proof. vm_compute. reflexivity. Qed.
+Proof. check_eq. Qed.
+
+Example munmap_partial_into_stack_band_is_unmodeled :
+  check_syscall (mkInput 215 [Z_to_bv 64 (demo_top - 4096); 8192; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(Z_to_bv 64 (demo_top - 4096), 8192)] [] [])
+    (maps_model [(Z_to_bv 64 (demo_top - 8192), 8192)])
+  = CheckUnmodeled.
+Proof. check_eq. Qed.
+
+(** The trim a sealed MSan runtime makes ([MmapAlignedOrDieOnFatalError]):
+    map 2 MiB, keep the lower 1 MiB. *)
+Example munmap_msan_aligned_trim :
+  check_syscall (mkInput 215 [Z_to_bv 64 0x7f0000100000; 1048576; 0; 0; 0; 0]
+                   (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(Z_to_bv 64 0x7f0000100000, 1048576)] [] [])
+    (maps_model [(Z_to_bv 64 0x7f0000000000, 2097152)])
+  = CheckOk (maps_model [(Z_to_bv 64 0x7f0000000000, 1048576)]) [].
+Proof. check_eq. Qed.
 
 (** Reason 3.  [check_munmap]'s gate bounds the SUM [addr + nZ] by
     [State.TASK_SIZE] (see [Mmap.munmap_spec]); pin that an ordinary
@@ -367,8 +502,8 @@ Proof. split; check_eq. Qed.
 
     Two things follow, and together they are why the gap costs precision
     and not soundness.  The model really does claim the source gone, so no
-    later call can be answered out of it — [Mremap.mremap_source_b] and
-    [Mmap.munmap_spec] both go through [map_has], which now fails, i.e.
+    later call can be answered out of it — [Mremap.mremap_source_b]
+    goes through [map_has], which now fails, i.e.
     fail closed. And the two free sets
     differ EXACTLY on the regions that meet the retained source: everything
     the divergent kernel still considers free the model considers free too,
@@ -2364,6 +2499,37 @@ Example munmap_forgets_lazy_and_materialized_metadata :
       (with_mmap_destroyed 65536 8192 (mkVmMaps [] [] 0 0 8192)
         mmap_lazy_materialized) [].
 Proof. check_eq. Qed.
+
+(** A partial unmap of the same lazy mapping forgets the lazy range and
+    the materialized page inside the cut, through the same
+    [with_mmap_destroyed] as the whole unmap above: the one page still
+    charged is the one outside the cut, and unmapping it too brings the
+    charge to 0. *)
+Example munmap_partial_forgets_cut_backing :
+  check_syscall
+    (mkInput 215 [65536; 4096; 0; 0; 0; 0]
+      (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(65536, 4096)] [] []) mmap_lazy_materialized
+  = CheckOk
+      (with_mmap_destroyed 65536 4096 (mkVmMaps [] [(69632, 4096)] 0 0 8192)
+        mmap_lazy_materialized) [].
+Proof. check_eq. Qed.
+
+Example munmap_partial_backing_then_rest :
+  let post := with_mmap_destroyed 65536 4096
+                (mkVmMaps [] [(69632, 4096)] 0 0 8192)
+                mmap_lazy_materialized in
+  m_vm_lazy post = [(69632, 4096)] /\ m_vm_materialized post = [69632] /\
+  vm_backing_used post = 4096%Z /\
+  check_syscall
+    (mkInput 215 [69632; 4096; 0; 0; 0; 0]
+      (fun _ => None) (fun _ => None))
+    (mkEffectU 0 [] [] [(69632, 4096)] [] []) post
+  = CheckOk
+      (with_mmap_destroyed 69632 4096 (mkVmMaps [] [] 0 0 8192) post) [] /\
+  vm_backing_used
+    (with_mmap_destroyed 69632 4096 (mkVmMaps [] [] 0 0 8192) post) = 0%Z.
+Proof. cbv zeta. repeat split; check_eq. Qed.
 
 Example munmap_metadata_cannot_be_recharged_after_removal :
   let post := with_mmap_destroyed 65536 8192 (mkVmMaps [] [] 0 0 8192)

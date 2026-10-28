@@ -238,12 +238,13 @@ Proof.
   apply unmodeled_intro.
 Qed.
 
-(** munmap witness: mirrors the spec's four-way split — -EINVAL on a
+(** munmap witness: mirrors the spec's five-way split — -EINVAL on a
     bad argument or a range leaving the user address space, the removal
     (with its unmap effect) on an exact recorded mapping, the no-op 0 on
-    a free range below the stack band, and [Unmodeled] (fail closed) on
-    a partial unmap, one touching the image, or a free range reaching
-    into the band (see [Mmap.munmap_spec]). *)
+    a free range below the stack band, the cut (with its unmap effect)
+    on a partial unmap below the band, and [Unmodeled] (fail closed) on
+    a range touching the image or reaching into the band (see
+    [Mmap.munmap_spec]). *)
 
 Definition munmap_witness (addr len : word) (m : Model)
     : outcome SyscallEffect :=
@@ -267,6 +268,10 @@ Definition munmap_witness (addr len : word) (m : Model)
       (vm_mmap_base h) (vm_init_sp h)) m) []
     else if munmap_free_ok h addr nZ
     then ret_outcome (Z_to_bv 64 0) m
+    else if munmap_cut_ok h addr nZ
+    then Ok (mkEffectU (Z_to_bv 64 0) [] [] [(addr, n)] [] [])
+            (with_mmap_destroyed addr n
+               (mmap_fixed_destroyed_next h addr n) m) []
     else Unmodeled.
 
 Lemma munmap_witness_ok : forall addr len i m,
@@ -289,8 +294,13 @@ Proof.
                 (page_round_up_Z (bv_unsigned len))) eqn:Hfree.
     + eapply bind_step; [apply get_vmmaps_ok|]. cbv beta zeta.
       cbv iota. srw Hhas. srw Hfree. apply pure_ok.
-    + eapply bind_step; [apply get_vmmaps_ok|]. cbv beta zeta.
-      cbv iota. srw Hhas. srw Hfree. apply unmodeled_intro.
+    + destruct (munmap_cut_ok (m_vmmaps m) addr
+                  (page_round_up_Z (bv_unsigned len))) eqn:Hcut.
+      * eapply bind_step; [apply get_vmmaps_ok|]. cbv beta zeta.
+        cbv iota. srw Hhas. srw Hfree. srw Hcut. apply alt_r.
+        eapply bind_step; [apply modify_ok|]. apply pure_ok.
+      * eapply bind_step; [apply get_vmmaps_ok|]. cbv beta zeta.
+        cbv iota. srw Hhas. srw Hfree. srw Hcut. apply unmodeled_intro.
 Qed.
 
 (** mremap witness: deterministic -EINVAL for the modeled flag shape's

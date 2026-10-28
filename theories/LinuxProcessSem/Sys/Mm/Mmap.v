@@ -443,6 +443,7 @@ Definition brk_model_next (h : VmMaps) (req r : word) : VmMaps :=
        [mmap_fixed_rw_span_next]        — named; [maps_subtract]
        [Mprotect.mprotect_model_next]   — named; [maps_subtract]
        [munmap_spec]'s whole-mapping removal — inline; [maps_subtract]
+       [munmap_spec]'s partial unmap    — [mmap_fixed_destroyed_next]
 
      LEAVES THE LIST ALONE — [vm_noaccess h] carried over verbatim, so
      there is nothing to state: [Mremap.mremap_maps_next], and the rw
@@ -2196,14 +2197,38 @@ Definition mmap_budget_refused_b (addr len prot flags fd off : word)
       stack randomisation, mm/util.c at v6.18.46, so it is at least
       1 MiB under [sp - 8 MiB] unless the argv/envp block is larger than
       that) — and a free-range unmap that lands on those is answered 0
-      here where Linux unmaps them (or, with
-      [CONFIG_MSEAL_SYSTEM_MAPPINGS], refuses with -EPERM); that is a
-      premise of the model.
-    - anything else — a PARTIAL/interior/spanning unmap (Linux would
-      split the mapping), a range touching the binary image
-      ([vm_reserved] can never be unreserved), or a free range reaching
-      into the STACK BAND [[alloc_top h, TASK_SIZE)] — is unmodeled and
-      yields [unmodeled] (fail closed).  The band is the one region the
+      here where Linux unmaps them, or refuses with -EPERM when they are
+      sealed ([CONFIG_MSEAL_SYSTEM_MAPPINGS]; the [vma_is_sealed] tests
+      at mm/vma.c:1396-1398 and :1416-1418), or with -EINVAL when the
+      range starts or ends inside one of them: [__split_vma] asks the
+      VMA's [may_split] first (mm/vma.c:504-508), and a special mapping's
+      is [special_mapping_split], which always answers -EINVAL
+      (mm/mmap.c:1394-1403, installed for both by
+      [_install_special_mapping], :1492-1498).  That is a premise of the
+      model (SCOPE.md, "Assumptions that the model does not check").
+    - [addr, addr+n) meeting recorded mappings without being exactly
+      one — a head or tail trim, a hole punched in one mapping, a range
+      over several mappings or over mappings and free pages — that
+      touches no image segment and ends at or below [State.alloc_top]:
+      Linux splits the VMA the range starts inside and the one it ends
+      inside ([vms_gather_munmap_vmas], mm/vma.c:1401 and :1422),
+      detaches every VMA between, and returns 0; free pages are
+      skipped.  So the bytes outside the range stay mapped and the bytes
+      inside are unmapped.  The ledgers are cut by [maps_subtract] over
+      the range, the post-state a destructive MAP_FIXED failure writes
+      ([mmap_fixed_destroyed_next]); [with_mmap_destroyed] forgets the
+      lazy and materialized pages in the range, so their charge is
+      released as for a whole munmap; and the effect unmaps the range.
+      The free-range arm's vdso premise covers the free pages here too.
+      Linux can also answer -ENOMEM before any page is unmapped: the
+      [map_count] test of an interior split (mm/vma.c:1389-1393), a
+      [__split_vma] allocation, or a maple-tree store (:1428, :1573).
+      Each failure path re-attaches what it detached ([reattach_vmas]),
+      so the range keeps its pages.
+    - anything else — a range touching the binary image ([vm_reserved]
+      can never be unreserved), or a range reaching into the STACK BAND
+      [[alloc_top h, TASK_SIZE)] — is unmodeled and yields [unmodeled]
+      (fail closed).  The band is the one region the
       ledger does not describe: [Run.init_machine_state] zero-maps the
       stack below the entry [sp] and records it in no [VmMaps] list, so a
       range that is free by the ledger may be the stack, which Linux
@@ -2220,6 +2245,15 @@ Definition mmap_budget_refused_b (addr len prot flags fd off : word)
 Definition munmap_free_ok (h : VmMaps) (addr : word) (nZ : Z) : bool :=
   (region_free (vm_reserved h ++ vm_maps h) addr (Z_to_bv 64 nZ)
    && (bv_unsigned addr + nZ <=? alloc_top h)%Z)%bool.
+
+(** The partial arm's guard: no image segment in the range, and the
+    range below the stack band (see [munmap_spec]). *)
+Definition munmap_cut_ok (h : VmMaps) (addr : word) (nZ : Z) : bool :=
+  (region_free (vm_reserved h) addr (Z_to_bv 64 nZ)
+   && (bv_unsigned addr + nZ <=? alloc_top h)%Z)%bool.
+
+(** The partial arm's runtime failure (see [munmap_spec]). *)
+Definition munmap_errnos : list Z := [ENOMEM].
 
 Definition munmap_spec (addr len : word) : Sys SyscallEffect :=
   if negb (Z.eqb (bv_unsigned addr mod page_size) 0) || w_is0 len then err_ret EINVAL
@@ -2249,4 +2283,11 @@ Definition munmap_spec (addr len : word) : Sys SyscallEffect :=
       pure (mkEffectU (Z_to_bv 64 0) [] [] [(addr, n)] [] [])
     else if munmap_free_ok h addr nZ
     then ret_only (Z_to_bv 64 0)
+    else if munmap_cut_ok h addr nZ
+    then
+      alt
+        (e <- errno_from munmap_errnos ;; err_ret e)
+        (modify (with_mmap_destroyed addr n
+                   (mmap_fixed_destroyed_next h addr n)) ;;
+         pure (mkEffectU (Z_to_bv 64 0) [] [] [(addr, n)] [] []))
     else unmodeled.
