@@ -19,10 +19,19 @@ Other stable kernels (v4.17 and later) are a goal. They are not supported
 now. The model does not check claims about them.
 
 In one case the model describes one supported system and not the other.
-The LR/SC reservation survives a system call: `ecall` leaves `ms_resv`
-as it is (`Run.apply_effect`, `Run.advance_past_svc`). QEMU user mode
-keeps the reservation too. Linux clears it on each return to user mode
-(`arch/riscv/kernel/entry.S`). Thus `lr; ecall; sc` has one outcome in
+The LR/SC reservation survives a trap that Linux handles and returns
+from. `ecall` leaves `ms_resv` as it is (`Run.apply_effect`,
+`Run.advance_past_svc`), and no step of the model is a page fault that
+the kernel resolves. QEMU user mode keeps the reservation too. Linux
+clears it on each return to user mode (`ret_from_exception`,
+`arch/riscv/kernel/entry.S:251-269`). On Linux the first store to a
+writable page of the image that the process has not yet written is such
+a trap: the page is not mapped writable until that store faults. An
+`lr.w; sc.w` pair on that page therefore fails the first time on Linux
+(rd = 1), and succeeds in the model (`Checks/RiscvReservationTrap.v`)
+and in QEMU user mode. A retry loop runs twice on Linux and once in the
+model. A proof about the result of such an `sc` says nothing about Linux.
+Thus `lr; ecall; sc` has one outcome in
 the model, and that outcome is QEMU's. A proof about such a sequence
 says nothing about Linux.
 
