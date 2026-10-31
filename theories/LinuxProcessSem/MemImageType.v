@@ -84,15 +84,25 @@ Fixpoint string_has (c : Ascii.ascii) (s : String.string) : bool :=
     the same protections a real kernel installs at [execve]:
 
     - [seg_readable]: reads (machine loads, and syscall SOURCE buffers)
-      may only touch readable pages.  A PROT_NONE / write-only region is
-      not readable — reading it is the SIGSEGV analogue.
+      may only touch readable pages.  On riscv Linux a writable page is
+      readable too: [load_elf_binary] maps a segment whose only flag is
+      PF_W with PROT_WRITE ([make_prot], fs/binfmt_elf.c:625-638, called
+      at :1052), riscv's [protection_map] gives VM_WRITE the read-only
+      [PAGE_COPY] = [PAGE_READ] (arch/riscv/mm/init.c:379,
+      arch/riscv/include/asm/pgtable.h:192),
+      and the load page fault is an access error only when the VMA has
+      neither VM_READ nor VM_WRITE ("Write implies read",
+      arch/riscv/mm/fault.c:257-262).  So a segment is readable when it
+      has 'r' or 'w'.  A PROT_NONE or execute-only region is not
+      readable — reading it is the SIGSEGV analogue.
     - [seg_writable]: drives two trusted checks — machine stores into a
       non-writable segment are illegal (RiscvSemantics.v), and syscall
       OUTPUT buffers must be writable-mapped (LinuxProcessSem).
     - [seg_executable]: instruction fetch may only read executable pages
       (the NX / W^X guarantee).  Jumping into a non-executable segment
       (.rodata, .data) faults rather than executing its bytes as code. *)
-Definition seg_readable   (seg : Segment) : bool := string_has "r"%char (seg_perms seg).
+Definition seg_readable   (seg : Segment) : bool :=
+  string_has "r"%char (seg_perms seg) || string_has "w"%char (seg_perms seg).
 Definition seg_writable   (seg : Segment) : bool := string_has "w"%char (seg_perms seg).
 Definition seg_executable (seg : Segment) : bool := string_has "x"%char (seg_perms seg).
 

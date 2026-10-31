@@ -574,12 +574,14 @@ def _range_readable(segments, addr: int, size: int) -> bool:
 
     Zero-length ranges are vacuously fine.  Segments are page-rounded
     extents, which is exactly what the model maps, so this asks the
-    question the model will ask at run time.
+    question the model will ask at run time.  Readable means 'r' or 'w',
+    as MemImageType.seg_readable has it: riscv Linux lets a process read
+    a page it may write.
     """
     if size == 0:
         return True
     for seg in segments:
-        if "r" not in seg["perms"]:
+        if "r" not in seg["perms"] and "w" not in seg["perms"]:
             continue
         if seg["base"] <= addr and addr + size <= seg["base"] + seg["size"]:
             return True

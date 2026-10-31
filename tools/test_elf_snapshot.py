@@ -539,6 +539,19 @@ def main():
                 "expected ValueError"
             )
 
+        # Readable means 'r' or 'w', as MemImageType.seg_readable has it:
+        # riscv Linux reads a page the process may write, but not an
+        # execute-only or PROT_NONE one.  So a PT_TLS image or phdr table
+        # in a write-only segment is readable, and in those two is not.
+        for perms, want in (("-w-", True), ("rw-", True), ("r--", True),
+                            ("--x", False), ("---", False)):
+            seg = {"base": 0x40000, "size": 0x1000, "perms": perms}
+            got = elf_snapshot._range_readable([seg], 0x40000, 8)
+            assert got is want, (
+                "_range_readable over a %r segment is %r, expected %r"
+                % (perms, got, want)
+            )
+
         # An UNMAPPED program header table is rejected: with no AT_PHDR to
         # publish, libc startup could not find PT_TLS at all.
         nophdr = os.path.join(tmp, "fake_unmapped_phdrs.elf")

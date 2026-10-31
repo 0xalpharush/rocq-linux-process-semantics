@@ -39,7 +39,8 @@
         user process, honouring the per-segment ELF page permissions
         (r/w/x):
         - the loaded segments as a read-only backing ([ms_rom]), gated
-          on 'r' so a load from a PROT_NONE page faults ([memory_read]);
+          on [seg_readable] so a load from a PROT_NONE page faults
+          ([memory_read]);
         - a writable overlay for everything the process stores
           ([ms_mem]), with stores outside the WRITABLE view made
           illegal (the SIGSEGV analogue, [store_ok]) — a store must
@@ -388,10 +389,10 @@ Section WithMemImage.
 Variable mi_loaded_segments : list Segment.
 
 (** DATA read: return [addr .. addr+n) only if it lies in a single
-    READABLE segment.  A load whose target segment lacks the 'r' flag
-    (a PROT_NONE / write-only page) reads as unmapped — the SIGSEGV
-    analogue — exactly as a store outside the writable view is
-    illegal (see [store_ok]).  Used for machine loads and,
+    READABLE segment ([seg_readable]: 'r' or 'w').  A load whose target
+    segment is not readable (a PROT_NONE or execute-only page) reads as
+    unmapped — the SIGSEGV analogue — exactly as a store outside the
+    writable view is illegal (see [store_ok]).  Used for machine loads and,
     via [Run.init_machine_state]'s [ms_rom], for syscall source
     buffers. *)
 Definition memory_read (addr : word) (n : N) : option (list byte) :=
